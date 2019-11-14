@@ -160,42 +160,6 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     done
 fi
 
-# You can skip this and remove --rnnlm option in the recognition (stage 5)
-if [ -z ${lmtag} ]; then
-    lmtag=$(basename ${lm_config%.*})
-fi
-lmexpname=train_rnnlm_${backend}_${lmtag}_${bpemode}${nbpe}
-lmexpdir=exp/${lmexpname}
-mkdir -p ${lmexpdir}
-
-if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
-    echo "stage 3: LM Preparation"
-    lmdatadir=data/local/lm_train_${bpemode}${nbpe}
-    mkdir -p ${lmdatadir}
-    # use external data
-    if [ ! -e data/local/lm_train/librispeech-lm-norm.txt.gz ]; then
-        wget http://www.openslr.org/resources/11/librispeech-lm-norm.txt.gz -P data/local/lm_train/
-    fi
-    cut -f 2- -d" " data/${train_set}/text | gzip -c > data/local/lm_train/${train_set}_text.gz
-    # combine external text and transcriptions and shuffle them with seed 777
-    zcat data/local/lm_train/librispeech-lm-norm.txt.gz data/local/lm_train/${train_set}_text.gz |\
-        spm_encode --model=${bpemodel}.model --output_format=piece > ${lmdatadir}/train.txt
-    cut -f 2- -d" " data/${train_dev}/text | spm_encode --model=${bpemodel}.model --output_format=piece \
-        > ${lmdatadir}/valid.txt
-    ${cuda_cmd} --gpu ${ngpu} ${lmexpdir}/train.log \
-        lm_train.py \
-        --config ${lm_config} \
-        --ngpu ${ngpu} \
-        --backend ${backend} \
-        --verbose 1 \
-        --outdir ${lmexpdir} \
-        --tensorboard-dir tensorboard/${lmexpname} \
-        --train-label ${lmdatadir}/train.txt \
-        --valid-label ${lmdatadir}/valid.txt \
-        --resume ${lm_resume} \
-        --dict ${dict}
-fi
-
 if [ -z ${tag} ]; then
     expname=${train_set}_${backend}_$(basename ${train_config%.*})
     if ${do_delta}; then
@@ -210,60 +174,9 @@ fi
 expdir=exp/${expname}
 mkdir -p ${expdir}
 
-if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
-    echo "stage 4: Network Training"
-    ${cuda_cmd} --gpu ${ngpu} ${expdir}/train.log \
-        asr_train.py \
-        --config ${train_config} \
-        --preprocess-conf ${preprocess_config} \
-        --ngpu ${ngpu} \
-        --backend ${backend} \
-        --outdir ${expdir}/results \
-        --tensorboard-dir tensorboard/${expname} \
-        --debugmode ${debugmode} \
-        --dict ${dict} \
-        --debugdir ${expdir} \
-        --minibatches ${N} \
-        --verbose ${verbose} \
-        --resume ${resume} \
-        --train-json ${feat_tr_dir}/data_${bpemode}${nbpe}.json \
-        --valid-json ${feat_dt_dir}/data_${bpemode}${nbpe}.json
-fi
-
-if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
-    echo "stage 5: Decoding"
-    if [[ $(get_yaml.py ${train_config} model-module) = *transformer* ]]; then
-        # Average ASR models
-        if ${use_valbest_average}; then
-            recog_model=model.val${n_average}.avg.best
-            opt="--log ${expdir}/results/log"
-        else
-            recog_model=model.last${n_average}.avg.best
-            opt="--log"
-        fi
-        average_checkpoints.py \
-            ${opt} \
-            --backend ${backend} \
-            --snapshots ${expdir}/results/snapshot.ep.* \
-            --out ${expdir}/results/${recog_model} \
-            --num ${n_average}
-
-        # Average LM models
-        if ${use_lm_valbest_average}; then
-            lang_model=rnnlm.val${lm_n_average}.avg.best
-            opt="--log ${expdir}/results/log"
-        else
-            lang_model=rnnlm.last${lm_n_average}.avg.best
-            opt="--log"
-        fi
-        average_checkpoints.py \
-            ${opt} \
-            --backend ${backend} \
-            --snapshots ${lmexpdir}/snapshot.ep.* \
-            --out ${lmexpdir}/${lang_model} \
-            --num ${lm_n_average}
-    fi
-    nj=32
+if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
+    echo "stage 3: Decoding"
+    nj=4
 
     pids=() # initialize pids
     for rtask in ${recog_set}; do
@@ -287,7 +200,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --recog-json ${feat_recog_dir}/split${nj}utt/data_${bpemode}${nbpe}.JOB.json \
             --result-label ${expdir}/${decode_dir}/data.JOB.json \
             --model ${expdir}/results/${recog_model}  \
-            --rnnlm ${lmexpdir}/${lang_model}
+            --rnnlm ${lang_model}
 
         score_sclite.sh --bpe ${nbpe} --bpemodel ${bpemodel}.model --wer true ${expdir}/${decode_dir} ${dict}
 

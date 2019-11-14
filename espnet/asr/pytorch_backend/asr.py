@@ -491,6 +491,11 @@ def train(args):
     trainer.extend(extensions.PlotReport(['main/cer_ctc', 'validation/main/cer_ctc'],
                                          'epoch', file_name='cer.png'))
 
+    # Save initial model
+    #torch.save(model, 'model.loss.init')
+    #if mtl_mode != 'ctc':
+    #    torch.save(model, 'model.acc.init')
+
     # Save best models
     trainer.extend(snapshot_object(model, 'model.loss.best'),
                    trigger=training.triggers.MinValueTrigger('validation/main/loss'))
