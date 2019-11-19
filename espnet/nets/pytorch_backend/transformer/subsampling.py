@@ -39,3 +39,26 @@ class Conv2dSubsampling(torch.nn.Module):
         if x_mask is None:
             return x, None
         return x, x_mask[:, :, :-2:2][:, :, :-2:2]
+
+    def introspect(self, x, x_mask):
+        """Subsample x
+
+        :param torch.Tensor x: input tensor
+        :param torch.Tensor x_mask: input mask
+        :return: subsampled x and mask
+        :rtype Tuple[torch.Tensor, torch.Tensor]
+        """
+        activations = {}
+        x = x.unsqueeze(1)  # (b, c, t, f)
+        for i, module in enumerate(self.conv._modules.values()):
+            x = module(x)
+            if type(module) == torch.nn.ReLU:
+                b, c, t, f = x.size()
+                ac = x.transpose(1, 2).contiguous().view(b, t, c * f)
+                activations['conv' + str(i)] = ac.cpu().numpy()
+        b, c, t, f = x.size()
+        x = self.out(x.transpose(1, 2).contiguous().view(b, t, c * f))
+        activations['out'] = x.cpu().numpy()
+        if x_mask is None:
+            return x, None, activations
+        return x, x_mask[:, :, :-2:2][:, :, :-2:2], activations

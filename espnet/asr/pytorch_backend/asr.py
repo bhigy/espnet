@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import pickle
 import sys
 
 from chainer.datasets import TransformDataset
@@ -678,6 +679,106 @@ def recog(args):
 
     with open(args.result_label, 'wb') as f:
         f.write(json.dumps({'utts': new_js}, indent=4, ensure_ascii=False, sort_keys=True).encode('utf_8'))
+
+
+def introspect(args):
+    """Introspect with the given args.
+
+    Args:
+        args (namespace): The program arguments.
+    """
+    set_deterministic_pytorch(args)
+    model, train_args = load_trained_model(args.model)
+    assert isinstance(model, ASRInterface)
+    model.introspect_args = args
+
+    # gpu
+    if args.ngpu == 1:
+        gpu_id = list(range(args.ngpu))
+        logging.info('gpu id: ' + str(gpu_id))
+        model.cuda()
+
+    # read json data
+    with open(args.recog_json, 'rb') as f:
+        js = json.load(f)['utts']
+    new_js = {}
+
+    load_inputs_and_targets = LoadInputsAndTargets(
+        mode='asr', load_output=False, sort_in_input_length=False,
+        preprocess_conf=train_args.preprocess_conf
+        if args.preprocess_conf is None else args.preprocess_conf,
+        preprocess_args={'train': False})
+
+    #import pdb; pdb.set_trace()
+    if args.batchsize == 0:
+        with torch.no_grad():
+            for idx, name in enumerate(js.keys(), 1):
+                logging.info('(%d/%d) decoding ' + name, idx, len(js.keys()))
+                batch = [(name, js[name])]
+                feat = load_inputs_and_targets(batch)[0][0]
+                if args.streaming_mode == 'window':
+                    raise NotImplemented
+                    logging.info('Using streaming recognizer with window size %d frames', args.streaming_window)
+                    se2e = WindowStreamingE2E(e2e=model, introspect_args=args, rnnlm=rnnlm)
+                    for i in range(0, feat.shape[0], args.streaming_window):
+                        logging.info('Feeding frames %d - %d', i, i + args.streaming_window)
+                        se2e.accept_input(feat[i:i + args.streaming_window])
+                    logging.info('Running offline attention decoder')
+                    se2e.decode_with_attention_offline()
+                    logging.info('Offline attention decoder finished')
+                    nbest_hyps = se2e.retrieve_recognition()
+                elif args.streaming_mode == 'segment':
+                    raise NotImplemented
+                    logging.info('Using streaming recognizer with threshold value %d', args.streaming_min_blank_dur)
+                    nbest_hyps = []
+                    for n in range(args.nbest):
+                        nbest_hyps.append({'yseq': [], 'score': 0.0})
+                    se2e = SegmentStreamingE2E(e2e=model, introspect_args=args, rnnlm=rnnlm)
+                    r = np.prod(model.subsample)
+                    for i in range(0, feat.shape[0], r):
+                        hyps = se2e.accept_input(feat[i:i + r])
+                        if hyps is not None:
+                            text = ''.join([train_args.char_list[int(x)]
+                                            for x in hyps[0]['yseq'][1:-1] if int(x) != -1])
+                            text = text.replace('\u2581', ' ').strip()  # for SentencePiece
+                            text = text.replace(model.space, ' ')
+                            text = text.replace(model.blank, '')
+                            logging.info(text)
+                            for n in range(args.nbest):
+                                nbest_hyps[n]['yseq'].extend(hyps[n]['yseq'])
+                                nbest_hyps[n]['score'] += hyps[n]['score']
+                else:
+                    activations = model.introspect(feat)
+                activations['input'] = feat
+                new_js[name] = {'activations': activations,
+                                'input': feat,
+                                'text': js[name]['output'][0]['text']}
+
+    else:
+        raise NotImplemented
+        def grouper(n, iterable, fillvalue=None):
+            kargs = [iter(iterable)] * n
+            return zip_longest(*kargs, fillvalue=fillvalue)
+
+        # sort data
+        keys = list(js.keys())
+        feat_lens = [js[key]['input'][0]['shape'][0] for key in keys]
+        sorted_index = sorted(range(len(feat_lens)), key=lambda i: -feat_lens[i])
+        keys = [keys[i] for i in sorted_index]
+
+        with torch.no_grad():
+            for names in grouper(args.batchsize, keys, None):
+                names = [name for name in names if name]
+                batch = [(name, js[name]) for name in names]
+                feats = load_inputs_and_targets(batch)[0]
+                nbest_hyps = model.recognize_batch(feats, args, train_args.char_list, rnnlm=rnnlm)
+
+                for i, nbest_hyp in enumerate(nbest_hyps):
+                    name = names[i]
+                    new_js[name] = add_results_to_json(js[name], nbest_hyp, train_args.char_list)
+
+    with open(args.result_label, 'wb') as f:
+        pickle.dump(new_js, f)
 
 
 def enhance(args):

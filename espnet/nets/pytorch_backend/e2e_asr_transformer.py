@@ -208,6 +208,18 @@ class E2E(ASRInterface, torch.nn.Module):
             logging.warning('loss (=%f) is not correct', loss_data)
         return self.loss
 
+    def introspect(self, feat):
+        '''Introspect model
+
+        :param ndnarray x: input acouctic feature (B, T, D) or (T, D)
+        :return: activations
+        :rtype: dict
+        '''
+        self.eval()
+        feat = torch.as_tensor(feat).unsqueeze(0)
+        _, _, activations = self.encoder.introspect(feat, None)
+        return activations
+
     def recognize(self, feat, recog_args, char_list=None, rnnlm=None, use_jit=False):
         '''recognize feat
 
