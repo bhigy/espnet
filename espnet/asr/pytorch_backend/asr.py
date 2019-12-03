@@ -29,6 +29,7 @@ from espnet.asr.asr_utils import plot_spectrogram
 from espnet.asr.asr_utils import restore_snapshot
 from espnet.asr.asr_utils import snapshot_object
 from espnet.asr.asr_utils import torch_load
+from espnet.asr.asr_utils import torch_save
 from espnet.asr.asr_utils import torch_resume
 from espnet.asr.asr_utils import torch_snapshot
 import espnet.lm.pytorch_backend.extlm as extlm_pytorch
@@ -493,9 +494,9 @@ def train(args):
                                          'epoch', file_name='cer.png'))
 
     # Save initial model
-    #torch.save(model, 'model.loss.init')
-    #if mtl_mode != 'ctc':
-    #    torch.save(model, 'model.acc.init')
+    torch_save('model.loss.init', model)
+    if mtl_mode != 'ctc':
+        torch_save('model.acc.init', model)
 
     # Save best models
     trainer.extend(snapshot_object(model, 'model.loss.best'),
