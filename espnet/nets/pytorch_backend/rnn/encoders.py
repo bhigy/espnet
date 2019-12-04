@@ -80,6 +80,42 @@ class RNNP(torch.nn.Module):
 
         return xs_pad, ilens, elayer_states  # x: utt list of frame x dim
 
+    def introspect(self, xs_pad, ilens, prev_state=None):
+        """RNNP introspect
+
+        :param torch.Tensor xs_pad: batch of padded input sequences (B, Tmax, idim)
+        :param torch.Tensor ilens: batch of lengths of input sequences (B)
+        :param torch.Tensor prev_state: batch of previous RNN states
+        :return: batch of hidden state sequences (B, Tmax, hdim)
+        :rtype: torch.Tensor
+        """
+        # logging.info(self.__class__.__name__ + ' input lengths: ' + str(ilens))
+        elayer_states = []
+        activations = {}
+        import pdb; pdb.set_trace()
+        for layer in six.moves.range(self.elayers):
+            xs_pack = pack_padded_sequence(xs_pad, ilens, batch_first=True)
+            rnn = getattr(self, ("birnn" if self.bidir else "rnn") + str(layer))
+            rnn.flatten_parameters()
+            if prev_state is not None and rnn.bidirectional:
+                prev_state = reset_backward_rnn_state(prev_state)
+            ys, states = rnn(xs_pack, hx=None if prev_state is None else prev_state[layer])
+            elayer_states.append(states)
+            # ys: utt list of frame x cdim x 2 (2: means bidirectional)
+            ys_pad, ilens = pad_packed_sequence(ys, batch_first=True)
+            sub = self.subsample[layer + 1]
+            if sub > 1:
+                ys_pad = ys_pad[:, ::sub]
+                ilens = [int(i + 1) // sub for i in ilens]
+            # (sum _utt frame_utt) x dim
+            projected = getattr(self, 'bt' + str(layer)
+                                )(ys_pad.contiguous().view(-1, ys_pad.size(2)))
+            xs_pad = torch.tanh(projected.view(ys_pad.size(0), ys_pad.size(1), -1))
+            ac = [x[:ilen] for x, ilen in zip(xs_pad, ilens)]
+            activations['rnn' + layer] = ac
+
+        return xs_pad, ilens, elayer_states, activations  # x: utt list of frame x dim
+
 
 class RNN(torch.nn.Module):
     """RNN module
@@ -196,6 +232,65 @@ class VGG2L(torch.nn.Module):
             xs_pad.size(0), xs_pad.size(1), xs_pad.size(2) * xs_pad.size(3))
         return xs_pad, ilens, None  # no state in this layer
 
+    def introspect(self, xs_pad, ilens, **kwargs):
+        """VGG2L introspect
+
+        :param torch.Tensor xs_pad: batch of padded input sequences (B, Tmax, D)
+        :param torch.Tensor ilens: batch of lengths of input sequences (B)
+        :return: batch of padded hidden state sequences (B, Tmax // 4, 128 * D // 4)
+        :rtype: torch.Tensor
+        """
+        logging.info(self.__class__.__name__ + ' input lengths: ' + str(ilens))
+
+        # x: utt x frame x dim
+        # xs_pad = F.pad_sequence(xs_pad)
+
+        # x: utt x 1 (input channel num) x frame x dim
+        xs_pad = xs_pad.view(xs_pad.size(0), xs_pad.size(1), self.in_channel,
+                             xs_pad.size(2) // self.in_channel).transpose(1, 2)
+
+        if torch.is_tensor(ilens):
+            ilens = ilens.cpu().numpy()
+        else:
+            ilens = np.array(ilens, dtype=np.float32)
+
+        import pdb; pdb.set_trace()
+        activations = {}
+        # NOTE: max_pool1d ?
+        xs_pad = F.relu(self.conv1_1(xs_pad))
+        ac = xs_pad.transpose(1, 2)
+        ac = ac.contiguous().view(
+            ac.size(0), ac.size(1), ac.size(2) * ac.size(3))
+        activations['conv1'] = [a[:ilens[i]] for i, a in enumerate(ac)]
+
+        xs_pad = F.relu(self.conv1_2(xs_pad))
+        xs_pad = F.max_pool2d(xs_pad, 2, stride=2, ceil_mode=True)
+        ilens = np.array(np.ceil(ilens / 2), dtype=np.int64)
+        ac = xs_pad.transpose(1, 2)
+        ac = ac.contiguous().view(
+            ac.size(0), ac.size(1), ac.size(2) * ac.size(3))
+        activations['conv2'] = [a[:ilens[i]] for i, a in enumerate(ac)]
+
+        xs_pad = F.relu(self.conv2_1(xs_pad))
+        ac = xs_pad.transpose(1, 2)
+        ac = ac.contiguous().view(
+            ac.size(0), ac.size(1), ac.size(2) * ac.size(3))
+        activations['conv3'] = [a[:ilens[i]] for i, a in enumerate(ac)]
+        xs_pad = F.relu(self.conv2_2(xs_pad))
+        xs_pad = F.max_pool2d(xs_pad, 2, stride=2, ceil_mode=True)
+        ilens = np.array(
+            np.ceil(np.array(ilens, dtype=np.float32) / 2), dtype=np.int64).tolist()
+        ac = xs_pad.transpose(1, 2)
+        ac = ac.contiguous().view(
+            ac.size(0), ac.size(1), ac.size(2) * ac.size(3))
+        activations['conv4'] = [a[:ilens[i]] for i, a in enumerate(ac)]
+
+        # x: utt_list of frame (remove zeropaded frames) x (input channel num x dim)
+        xs_pad = xs_pad.transpose(1, 2)
+        xs_pad = xs_pad.contiguous().view(
+            xs_pad.size(0), xs_pad.size(1), xs_pad.size(2) * xs_pad.size(3))
+        return xs_pad, ilens, None, activations # no state in this layer
+
 
 class Encoder(torch.nn.Module):
     """Encoder module
@@ -260,6 +355,34 @@ class Encoder(torch.nn.Module):
         mask = to_device(self, make_pad_mask(ilens).unsqueeze(-1))
 
         return xs_pad.masked_fill(mask, 0.0), ilens, current_states
+
+    def introspect(self, xs_pad, ilens, prev_states=None):
+        """Encoder introspect
+
+        :param torch.Tensor xs_pad: batch of padded input sequences (B, Tmax, D)
+        :param torch.Tensor ilens: batch of lengths of input sequences (B)
+        :param torch.Tensor prev_state: batch of previous encoder hidden states (?, ...)
+        :return: batch of hidden state sequences (B, Tmax, eprojs)
+        :rtype: torch.Tensor
+        """
+        if prev_states is None:
+            prev_states = [None] * len(self.enc)
+        assert len(prev_states) == len(self.enc)
+
+        current_states = []
+        activations = {}
+        i = 0
+        import pdb; pdb.set_trace()
+        for module, prev_state in zip(self.enc, prev_states):
+            xs_pad, ilens, states, activations = module.introspect(xs_pad, ilens, prev_state=prev_state)
+            current_states.append(states)
+            activations['module' + i] = activations
+            i += 1
+
+        # make mask to remove bias value in padded part
+        mask = to_device(self, make_pad_mask(ilens).unsqueeze(-1))
+
+        return xs_pad.masked_fill(mask, 0.0), ilens, current_states, activations
 
 
 def encoder_for(args, idim, subsample):

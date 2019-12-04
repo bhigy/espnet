@@ -333,6 +333,26 @@ class E2E(ASRInterface, torch.nn.Module):
             logging.warning('loss (=%f) is not correct', loss_data)
         return self.loss
 
+    def introspect(self, xs_pad, ilens):
+        """E2E introspect
+
+        :param torch.Tensor xs_pad: batch of padded input sequences (B, Tmax, idim)
+        :param torch.Tensor ilens: batch of lengths of input sequences (B)
+        :param torch.Tensor ys_pad: batch of padded character id sequence tensor (B, Lmax)
+        :return: loass value
+        :rtype: torch.Tensor
+        """
+        # 0. Frontend
+        if self.frontend is not None:
+            hs_pad, hlens, mask = self.frontend(to_torch_tensor(xs_pad), ilens)
+            hs_pad, hlens = self.feature_transform(hs_pad, hlens)
+        else:
+            hs_pad, hlens = xs_pad, ilens
+
+        # 1. Encoder
+        _, _, _, activations = self.enc(hs_pad, hlens)
+        return activations
+
     def recognize(self, x, recog_args, char_list, rnnlm=None):
         """E2E beam search
 
