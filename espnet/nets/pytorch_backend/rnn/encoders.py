@@ -92,7 +92,6 @@ class RNNP(torch.nn.Module):
         # logging.info(self.__class__.__name__ + ' input lengths: ' + str(ilens))
         elayer_states = []
         activations = {}
-        import pdb; pdb.set_trace()
         for layer in six.moves.range(self.elayers):
             xs_pack = pack_padded_sequence(xs_pad, ilens, batch_first=True)
             rnn = getattr(self, ("birnn" if self.bidir else "rnn") + str(layer))
@@ -111,8 +110,8 @@ class RNNP(torch.nn.Module):
             projected = getattr(self, 'bt' + str(layer)
                                 )(ys_pad.contiguous().view(-1, ys_pad.size(2)))
             xs_pad = torch.tanh(projected.view(ys_pad.size(0), ys_pad.size(1), -1))
-            ac = [x[:ilen] for x, ilen in zip(xs_pad, ilens)]
-            activations['rnn' + layer] = ac
+            ac = [xs_pad[i, :int(ilens[i])].cpu().numpy() for i in range(xs_pad.shape[0])]
+            activations['rnn' + str(layer)] = ac
 
         return xs_pad, ilens, elayer_states, activations  # x: utt list of frame x dim
 
@@ -254,36 +253,35 @@ class VGG2L(torch.nn.Module):
         else:
             ilens = np.array(ilens, dtype=np.float32)
 
-        import pdb; pdb.set_trace()
         activations = {}
         # NOTE: max_pool1d ?
         xs_pad = F.relu(self.conv1_1(xs_pad))
         ac = xs_pad.transpose(1, 2)
         ac = ac.contiguous().view(
-            ac.size(0), ac.size(1), ac.size(2) * ac.size(3))
-        activations['conv1'] = [a[:ilens[i]] for i, a in enumerate(ac)]
+            ac.size(0), ac.size(1), ac.size(2) * ac.size(3)).cpu().numpy()
+        activations['conv0'] = [ac[i, :int(ilens[i])] for i in range(ac.shape[0])]
 
         xs_pad = F.relu(self.conv1_2(xs_pad))
         xs_pad = F.max_pool2d(xs_pad, 2, stride=2, ceil_mode=True)
         ilens = np.array(np.ceil(ilens / 2), dtype=np.int64)
         ac = xs_pad.transpose(1, 2)
         ac = ac.contiguous().view(
-            ac.size(0), ac.size(1), ac.size(2) * ac.size(3))
-        activations['conv2'] = [a[:ilens[i]] for i, a in enumerate(ac)]
+            ac.size(0), ac.size(1), ac.size(2) * ac.size(3)).cpu().numpy()
+        activations['conv1'] = [ac[i, :int(ilens[i])] for i in range(ac.shape[0])]
 
         xs_pad = F.relu(self.conv2_1(xs_pad))
         ac = xs_pad.transpose(1, 2)
         ac = ac.contiguous().view(
-            ac.size(0), ac.size(1), ac.size(2) * ac.size(3))
-        activations['conv3'] = [a[:ilens[i]] for i, a in enumerate(ac)]
+            ac.size(0), ac.size(1), ac.size(2) * ac.size(3)).cpu().numpy()
+        activations['conv2'] = [ac[i, :int(ilens[i])] for i in range(ac.shape[0])]
         xs_pad = F.relu(self.conv2_2(xs_pad))
         xs_pad = F.max_pool2d(xs_pad, 2, stride=2, ceil_mode=True)
         ilens = np.array(
             np.ceil(np.array(ilens, dtype=np.float32) / 2), dtype=np.int64).tolist()
         ac = xs_pad.transpose(1, 2)
         ac = ac.contiguous().view(
-            ac.size(0), ac.size(1), ac.size(2) * ac.size(3))
-        activations['conv4'] = [a[:ilens[i]] for i, a in enumerate(ac)]
+            ac.size(0), ac.size(1), ac.size(2) * ac.size(3)).cpu().numpy()
+        activations['conv3'] = [ac[i, :int(ilens[i])] for i in range(ac.shape[0])]
 
         # x: utt_list of frame (remove zeropaded frames) x (input channel num x dim)
         xs_pad = xs_pad.transpose(1, 2)
@@ -371,13 +369,10 @@ class Encoder(torch.nn.Module):
 
         current_states = []
         activations = {}
-        i = 0
-        import pdb; pdb.set_trace()
         for module, prev_state in zip(self.enc, prev_states):
-            xs_pad, ilens, states, activations = module.introspect(xs_pad, ilens, prev_state=prev_state)
+            xs_pad, ilens, states, ac = module.introspect(xs_pad, ilens, prev_state=prev_state)
             current_states.append(states)
-            activations['module' + i] = activations
-            i += 1
+            activations.update(ac)
 
         # make mask to remove bias value in padded part
         mask = to_device(self, make_pad_mask(ilens).unsqueeze(-1))

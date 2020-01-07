@@ -115,21 +115,21 @@ class Encoder(torch.nn.Module):
         return xs, masks
 
     def introspect(self, xs, masks):
-        """Embed positions in tensor
+        """Embed positions in tensor, also extracting intermediate activations
 
         :param torch.Tensor xs: input tensor
         :param torch.Tensor masks: input mask
         :return: position embedded tensor and mask
-        :rtype Tuple[torch.Tensor, torch.Tensor]:
+        :rtype Tuple[torch.Tensor, torch.Tensor, dict]:
         """
         activations = {}
         if isinstance(self.embed, Conv2dSubsampling):
             xs, masks, ac = self.embed.introspect(xs, masks)
-            activations['embed'] = ac
+            activations.update(ac)
         else:
             xs = self.embed(xs)
         xs, masks, ac = self.encoders.introspect(xs, masks)
-        activations['encoders'] = ac
+        activations.update(ac)
         if self.normalize_before:
             xs = self.after_norm(xs)
         return xs, masks, activations

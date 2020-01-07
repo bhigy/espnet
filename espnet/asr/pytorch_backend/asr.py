@@ -494,9 +494,9 @@ def train(args):
                                          'epoch', file_name='cer.png'))
 
     # Save initial model
-    torch_save('model.loss.init', model)
+    torch_save(os.path.join(args.outdir, 'model.loss.init'), model)
     if mtl_mode != 'ctc':
-        torch_save('model.acc.init', model)
+        torch_save(os.path.join(args.outdir, 'model.acc.init'), model)
 
     # Save best models
     trainer.extend(snapshot_object(model, 'model.loss.best'),
@@ -710,7 +710,6 @@ def introspect(args):
         if args.preprocess_conf is None else args.preprocess_conf,
         preprocess_args={'train': False})
 
-    #import pdb; pdb.set_trace()
     if args.batchsize == 0:
         with torch.no_grad():
             for idx, name in enumerate(js.keys(), 1):

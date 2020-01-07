@@ -14,7 +14,7 @@ class MultiSequential(torch.nn.Sequential):
         for i, m in enumerate(self):
             args = m(*args)
             ac = args[0]
-            activations['layer' + str(i)] = ac.cpu().numpy()
+            activations['transf' + str(i)] = ac.cpu().numpy()
         return (*args, activations)
 
 

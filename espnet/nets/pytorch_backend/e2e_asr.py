@@ -333,24 +333,32 @@ class E2E(ASRInterface, torch.nn.Module):
             logging.warning('loss (=%f) is not correct', loss_data)
         return self.loss
 
-    def introspect(self, xs_pad, ilens):
+    def introspect(self, x):
         """E2E introspect
 
-        :param torch.Tensor xs_pad: batch of padded input sequences (B, Tmax, idim)
-        :param torch.Tensor ilens: batch of lengths of input sequences (B)
-        :param torch.Tensor ys_pad: batch of padded character id sequence tensor (B, Lmax)
-        :return: loass value
-        :rtype: torch.Tensor
+        :param ndarray x: input acoustic feature (T, D)
+        :return: activations
+        :rtype: list
         """
+        prev = self.training
+        self.eval()
+        ilens = [x.shape[0]]
+
+        # subsample frame
+        x = x[::self.subsample[0], :]
+        h = to_device(self, to_torch_tensor(x).float())
+        # make a utt list (1) to use the same interface for encoder
+        hs = h.contiguous().unsqueeze(0)
+
         # 0. Frontend
         if self.frontend is not None:
-            hs_pad, hlens, mask = self.frontend(to_torch_tensor(xs_pad), ilens)
-            hs_pad, hlens = self.feature_transform(hs_pad, hlens)
+            enhanced, hlens, mask = self.frontend(hs, ilens)
+            hs, hlens = self.feature_transform(enhanced, hlens)
         else:
-            hs_pad, hlens = xs_pad, ilens
+            hs, hlens = hs, ilens
 
-        # 1. Encoder
-        _, _, _, activations = self.enc(hs_pad, hlens)
+        # 1. encoder
+        _, _, _, activations = self.enc.introspect(hs, hlens)
         return activations
 
     def recognize(self, x, recog_args, char_list, rnnlm=None):

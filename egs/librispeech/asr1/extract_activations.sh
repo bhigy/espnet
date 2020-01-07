@@ -31,7 +31,6 @@ lm_resume= # specify a snapshot file to resume LM training
 lmtag=     # tag for managing LMs
 
 # decoding parameter
-recog_model=model.acc.best  # set a model to be used for decoding: 'model.acc.best' or 'model.loss.best'
 lang_model=rnnlm.model.best # set a language model to be used for decoding
 
 # model average realted (only for transformer)
@@ -179,51 +178,34 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     echo "stage 3: Decoding"
     nj=8
 
-    for rtask in ${recog_set}; do
-    (
-        decode_dir=decode_${rtask}_${recog_model}_$(basename ${decode_config%.*})_${lmtag}
-        feat_recog_dir=${dumpdir}/${rtask}/delta${do_delta}
+    for recog_model in model.acc.init model.val5.avg.best; do
+        for rtask in ${recog_set}; do
+        (
+            decode_dir=decode_${rtask}_${recog_model}_$(basename ${decode_config%.*})_${lmtag}
+            feat_recog_dir=${dumpdir}/${rtask}/delta${do_delta}
 
-        # split data
-        splitjson.py --parts ${nj} ${feat_recog_dir}/data_${bpemode}${nbpe}.json
+            # split data
+            splitjson.py --parts ${nj} ${feat_recog_dir}/data_${bpemode}${nbpe}.json
 
-        #### use CPU for decoding
-        ngpu=0
+            #### use CPU for decoding
+            ngpu=0
 
-        # set batchsize 0 to disable batch decoding
-        ${decode_cmd} JOB=1:${nj} ${expdir}/${decode_dir}/log/decode.JOB.log \
-            asr_introspect.py \
-            --config ${decode_config} \
-            --ngpu ${ngpu} \
-            --backend ${backend} \
-            --batchsize 0 \
-            --recog-json ${feat_recog_dir}/split${nj}utt/data_${bpemode}${nbpe}.JOB.json \
-            --result-label ${expdir}/${decode_dir}/data.JOB.pkl \
-            --model ${expdir}/results/${recog_model}  \
-            --rnnlm ${lang_model}
-    )
+            # set batchsize 0 to disable batch decoding
+            ${decode_cmd} JOB=1:${nj} ${expdir}/${decode_dir}/log/decode.JOB.log \
+                asr_introspect.py \
+                --config ${decode_config} \
+                --ngpu ${ngpu} \
+                --backend ${backend} \
+                --batchsize 0 \
+                --recog-json ${feat_recog_dir}/split${nj}utt/data_${bpemode}${nbpe}.JOB.json \
+                --result-label ${expdir}/${decode_dir}/data.JOB.pkl \
+                --model ${expdir}/results/${recog_model}  \
+                --rnnlm ${lang_model}
+        )
+        done
     done
 
-    #rtask=dev_clean
-    #decode_dir=decode_${rtask}_${recog_model}_$(basename ${decode_config%.*})_${lmtag}
-    #feat_recog_dir=${dumpdir}/${rtask}/delta${do_delta}
-
-    ## split data
-    #splitjson.py --parts ${nj} ${feat_recog_dir}/data_${bpemode}${nbpe}.json
-
-    ##### use CPU for decoding
-    #ngpu=0
-
-    ## set batchsize 0 to disable batch decoding
-    #asr_introspect.py \
-    #    --config ${decode_config} \
-    #    --ngpu ${ngpu} \
-    #    --backend ${backend} \
-    #    --batchsize 0 \
-    #    --recog-json ${feat_recog_dir}/split${nj}utt/data_${bpemode}${nbpe}.1.json \
-    #    --result-label ${expdir}/${decode_dir}/data.1.json \
-    #    --model ${expdir}/results/${recog_model}  \
-    #    --rnnlm ${lang_model}
+    generate_activation_files.py -n $nj
 
     echo "Finished"
 fi

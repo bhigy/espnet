@@ -211,7 +211,7 @@ class E2E(ASRInterface, torch.nn.Module):
     def introspect(self, feat):
         '''Introspect model
 
-        :param ndnarray x: input acouctic feature (B, T, D) or (T, D)
+        :param ndnarray feat: input acouctic feature (B, T, D) or (T, D)
         :return: activations
         :rtype: dict
         '''
