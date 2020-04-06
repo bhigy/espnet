@@ -4,10 +4,10 @@ Models can be trained using standard functionalities of espnet. The modified
 version of the code offered here automatically saves the randomly initialized
 model before training under `exp/<exp_name>/results/model.acc.init`.
 Alternatively, the models used to generate the results from [1] (random and
-pretrained) can be downloaded from [here](www.test.com). The trained model
-correspond to the large transformer model with specaug described in
-[RESULTS.md] (first model). The random model is the corresponding non trained
-version of the same model.
+pretrained) can be downloaded from [here](). The trained model correspond to
+the large transformer model with specaug described in
+[RESULTS.md](https://github.com/bhigy/espnet/blob/phoneme-repr/egs/librispeech/asr1/RESULTS.md#pytorch-large-transformer-with-specaug-4-gpus--large-lm).
+The random model is the corresponding non trained version of the same model.
 
 ## Extracting activations
 
