@@ -23,4 +23,4 @@ folder (`exp/train_960_pytorch_phonemerepr`).
 
 ## References
 
-[1] Paper
+[1] Chrupała, Grzegorz, Bertrand Higy, and Afra Alishahi. “Analyzing Analytical Methods: The Case of Phonology in Neural Models of Spoken Language.” In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics. Seattle, WA, USA: Association for Computational Linguistics, 2020.
