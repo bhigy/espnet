@@ -89,7 +89,7 @@ def load_activations(access_fn, flist):
     return activations
 
 
-def merge_activations(root, flist, layers):
+def merge_activations(root, descriptor, flist, layers):
     # Initialization
 
     for lname in layers:
@@ -102,7 +102,7 @@ def merge_activations(root, flist, layers):
 
         print('Number of frames (' + lname + '):',
               np.sum([ac.shape[0] for ac in activations]))
-        fout_name = 'global_activations.{}.pkl'.format(lname)
+        fout_name = 'global_{}.{}.pkl'.format(descriptor, lname)
         fout_path = os.path.join(root, fout_name)
         pickle.dump(np.array(activations), open(fout_path, 'wb'), protocol=4)
 
@@ -113,10 +113,12 @@ def main(num_splits):
     layers.extend(['transf{}'.format(i) for i in range(0, 12)])
 
     fpath = [('exp/train_960_pytorch_phonemerepr',
-              'decode_dev_{}_model.val5.avg.best_decode_pytorch_transformer_large_'),
+              'decode_dev_{}_model.val5.avg.best_decode_pytorch_transformer_large_',
+              'trained'),
              ('exp/train_960_pytorch_phonemerepr',
-              'decode_dev_{}_model.acc.init_decode_pytorch_transformer_large_')]
-    for root, folder_template in fpath:
+              'decode_dev_{}_model.acc.init_decode_pytorch_transformer_large_',
+              'random')]
+    for root, folder_template, descriptor in fpath:
         # Generating list of files to combine
         flist = []
         for subset in ['clean', 'other']:
@@ -138,7 +140,13 @@ def main(num_splits):
         pickle.dump(metadata, open(ffullpath, 'wb'), protocol=4)
 
         # Generating activation files layer by layer
-        merge_activations(root, flist, layers)
+        merge_activations(root, descriptor, flist, layers)
+
+        # Deleting temporary files
+        for lname in layers:
+            for fpath in flist:
+                fpart_path = fpath.rstrip('.pkl') + '.{}.tmp'.format(lname)
+                os.remove(fpart_path)
 
 
 if __name__ == '__main__':
